@@ -1,20 +1,10 @@
-// ==UserScript==
-// @name         ZbierakPlemiona
-// @namespace    https://github.com/WraithVS/ZbierakPlemiona
-// @version      2.0.0
-// @description  Optymalizator zbieractwa (Plemiona/TribalWars): 3 tryby rozkladu, model czasu + ETA, lup/h, rezerwa per jednostka, profile, historia, ostrzezenie o magazynie, opcjonalna petla i multi-wioska.
-// @match        *://*.plemiona.pl/game.php*screen=place*
-// @match        *://*.tribalwars.*/game.php*screen=place*
-// @match        *://*.die-staemme.de/game.php*screen=place*
-// @run-at       document-idle
-// @grant        none
-// ==/UserScript==
-//
-//  Uruchamianie:
-//   A) Bookmarklet / pasek szybkiego dostepu:  javascript:$.getScript('RAW_URL');
-//      -> pelna analiza i rozklad dla biezacej wioski (petla/multi-wioska niedostepne).
-//   B) Userscript (Tampermonkey): wklej caly plik. Wtedy dziala tez petla i multi-wioska,
-//      bo skrypt laduje sie sam po kazdym przeladowaniu strony.
+//  Scavenge optimizer + popup z ustawieniami na zywo (Plemiona / TribalWars)
+//  Wersja do hostowania i ladowania przez:  javascript:$.getScript('RAW_URL');
+//   - 3 tryby rozkladu: rowny czas / max lup/h / limit czasu
+//   - model czasu + ETA (godzina powrotu), lup/h, ostrzezenie o magazynie
+//   - rezerwa i limit per jednostka, profile, historia wysylek, eksport/import
+//   - kazda zmiana w popupie -> przelicza plan i odrysowuje tabele
+//   - ustawienia zapisywane w localStorage (per swiat)
 //
 //  Model czasu zbieractwa (sekundy):
 //      t = ( ((loot_factor * capacity)^2 * 100)^EXP + INIT ) * FACTOR
@@ -57,12 +47,6 @@
         time_factor: 0,          // 0 = autodetekcja/domyslny; >0 = reczna kalibracja
         warn_storage: 1,         // ostrzegaj gdy lup przepelni magazyn
 
-        // --- eksperymentalne (dzialaja tylko jako userscript) ---
-        loop_enabled: 0,         // auto-powtarzaj w tej wiosce
-        loop_buffer_s: 90,       // bufor po najkrotszym biegu przed restartem
-        mv_enabled: 0,           // multi-wioska
-        mv_ids: '',              // lista ID wiosek po przecinku
-
         ui_pos: null             // zapamietana pozycja okna {x,y}
     };
 
@@ -71,16 +55,8 @@
     // ====================================================================
     var url = document.URL;
     if (url.indexOf('screen=place') === -1 || url.indexOf('mode=scavenge') === -1){
-        // przy userscript nie pokazujemy alertu na kazdej podstronie placu
-        if (url.indexOf('screen=place') !== -1 && url.indexOf('mode=scavenge') === -1 && !isUserscript()){
-            alert('Skrypt do uzycia w placu w zakladce zbieractwo');
-        }
+        alert('Skrypt do uzycia w placu w zakladce zbieractwo');
         return;
-    }
-
-    function isUserscript(){
-        // heurystyka: userscript laduje sie sam (run-at), bookmarklet jest wolany recznie.
-        try { return (typeof GM_info !== 'undefined'); } catch(e){ return false; }
     }
 
     // ====================================================================
@@ -93,7 +69,6 @@
     var STORE_KEY    = 'zbieracz_settings_' + WORLD;
     var PROFILES_KEY = 'zbieracz_profiles_' + WORLD;
     var HISTORY_KEY  = 'zbieracz_history_'  + WORLD;
-    var LOOP_KEY     = 'zbieracz_loop_'     + WORLD; // stan petli/multi-wioski
 
     function num(x, d){ x = parseFloat(x); return isNaN(x) ? (d||0) : x; }
     function clampInt(x, d){ var v = parseInt(x,10); return isNaN(v) ? d : v; }
@@ -218,7 +193,7 @@
     //  WOLNE POZIOMY + DOSTEPNOSC JEDNOSTEK
     // ====================================================================
     var buttons = Array.prototype.slice.call(document.getElementsByClassName('free_send_button'));
-    if(buttons.length === 0){ if(!settings.loop_enabled && !settings.mv_enabled) alert('Nie znaleziono przyciskow poziomow'); return; }
+    if(buttons.length === 0){ alert('Nie znaleziono przyciskow poziomow'); return; }
     var freeLevels = [];
     buttons.forEach(function(btn, idx){ if(!btn.classList.contains('btn-disabled')) freeLevels.push(idx+1); });
 
@@ -406,7 +381,7 @@
         if(settings.auto_send == 1){
             var k = 0;
             (function step(){
-                if(k >= levels.length){ afterSend(state); return; }
+                if(k >= levels.length){ return; }
                 var i = k++; fillLevel(i);
                 setTimeout(function(){ clickLevel(levels[i]); setTimeout(step, settings.send_delay_ms); }, 80);
             })();
@@ -414,62 +389,6 @@
             fillLevel(0);
             console.log('[Zbieractwo] auto_send=0 -> wypelniono tylko poziom '+levels[0]);
         }
-    }
-
-    // ====================================================================
-    //  PETLA / MULTI-WIOSKA  (tylko sensowne jako userscript)
-    // ====================================================================
-    function loopState(){ try{ return JSON.parse(localStorage.getItem(LOOP_KEY)||'null'); }catch(e){ return null; } }
-    function setLoopState(s){ try{ s ? localStorage.setItem(LOOP_KEY, JSON.stringify(s)) : localStorage.removeItem(LOOP_KEY); }catch(e){} }
-
-    function currentVillageId(){ return (gd && gd.village) ? gd.village.id : null; }
-    function gotoVillage(id){
-        var u = location.href.replace(/([?&]village=)\d+/, '$1'+id);
-        if(u === location.href) u = location.href + (location.href.indexOf('?')>=0?'&':'?') + 'village='+id;
-        location.href = u;
-    }
-
-    function afterSend(state){
-        // zaplanuj kolejny krok tylko jesli petla/multi aktywne i jestesmy w userscript
-        if(!isUserscript()) return;
-
-        if(settings.mv_enabled){
-            var ids = String(settings.mv_ids||'').split(',').map(function(x){return x.trim();}).filter(Boolean);
-            var st = loopState() || { queue: ids.slice(), idx:0 };
-            // przejdz do nastepnej wioski z kolejki
-            st.idx = (st.idx||0) + 1;
-            if(st.idx < (st.queue||ids).length){
-                setLoopState(st);
-                setTimeout(function(){ gotoVillage((st.queue||ids)[st.idx]); }, 1500);
-                return;
-            } else {
-                setLoopState(null); // koniec rundy multi-wioski
-            }
-        }
-
-        if(settings.loop_enabled){
-            // restart po najkrotszym biegu + bufor (reload przeladuje strone, userscript wystartuje sam)
-            var minT = state.times.filter(function(t){return t>0;});
-            minT = minT.length ? Math.min.apply(null, minT) : 1800;
-            var wait = (minT + clampInt(settings.loop_buffer_s,90)) * 1000;
-            setLoopState({ mode:'loop', due: Date.now()+wait });
-            console.log('[Zbieractwo] petla: reload za ~'+fmtDur(wait/1000));
-            setTimeout(function(){ location.reload(); }, wait);
-        }
-    }
-
-    // auto-start przy zaladowaniu strony jako userscript (obsluga petli/multi-wioski w toku)
-    function maybeAutorun(){
-        if(!isUserscript()) return false;
-        var st = loopState();
-        var mvActive = settings.mv_enabled && st && st.queue;
-        var loopDue  = settings.loop_enabled && st && st.mode==='loop';
-        if(mvActive || loopDue){
-            // odpal bez okna potwierdzenia
-            setTimeout(function(){ execute(recompute()); }, 1200);
-            return true;
-        }
-        return false;
     }
 
     // ====================================================================
@@ -558,20 +477,12 @@
                     '</div>'+
                 '</details>'+
 
-                '<details style="margin-bottom:2px"><summary style="cursor:pointer;font-weight:bold">Zaawansowane (czas, petla, multi-wioska)</summary>'+
+                '<details style="margin-bottom:2px"><summary style="cursor:pointer;font-weight:bold">Zaawansowane (model czasu)</summary>'+
                     '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:12px;align-items:center">'+
                         '<label>duration_factor: '+inp('scavFactor', (settings.time_factor||TIME.factor), 110)+'</label>'+
                         '<label><input type="checkbox" id="scavWarn" '+(settings.warn_storage?'checked':'')+'> Ostrzegaj o magazynie</label>'+
                     '</div>'+
-                    '<div style="margin-top:8px;padding:6px 8px;background:#f3d6a8;border:1px solid #a06b1f;border-radius:4px">'+
-                        '<div style="font-size:11px;margin-bottom:4px">&#9888; Ponizsze dziala tylko jako <b>userscript (Tampermonkey)</b> i jest de facto botem - na wlasne ryzyko (regulamin InnoGames).</div>'+
-                        '<label><input type="checkbox" id="scavLoop" '+(settings.loop_enabled?'checked':'')+'> Auto-powtarzaj w tej wiosce</label>'+
-                        '<label style="margin-left:10px">bufor '+inp('scavLoopBuf', settings.loop_buffer_s, 56)+' s</label>'+
-                        '<div style="margin-top:6px"><label><input type="checkbox" id="scavMv" '+(settings.mv_enabled?'checked':'')+'> Multi-wioska, ID po przecinku: </label>'+
-                        '<input id="scavMvIds" value="'+(settings.mv_ids||'')+'" style="width:220px" placeholder="12345,12346,...">'+
-                        (isUserscript()? '' : '<div style="font-size:11px;margin-top:4px;color:#6b3a0f">Teraz uruchomione jako bookmarklet - petla/multi sa nieaktywne.</div>')+
-                        '</div>'+
-                    '</div>'+
+                    '<div style="font-size:11px;margin-top:6px;color:#6b5a3a">Wspolczynnik czasu zalezy od predkosci swiata. Jesli ETA sie nie zgadza: zmierz 1 realny bieg i wpisz wartosc (sam rozklad jednostek na to nie reaguje).</div>'+
                 '</details>';
 
             // --- eventy: poziomy ---
@@ -598,10 +509,6 @@
             // --- zaawansowane ---
             byId('scavFactor').addEventListener('change', function(e){ var v=num(e.target.value,0); settings.time_factor = v>0?v:0; if(v>0) TIME.factor=v; apply(); });
             byId('scavWarn').addEventListener('change', function(e){ settings.warn_storage = e.target.checked?1:0; apply(); });
-            byId('scavLoop').addEventListener('change', function(e){ settings.loop_enabled = e.target.checked?1:0; saveSettings(); });
-            byId('scavLoopBuf').addEventListener('change', function(e){ settings.loop_buffer_s = clampInt(e.target.value,90); saveSettings(); });
-            byId('scavMv').addEventListener('change', function(e){ settings.mv_enabled = e.target.checked?1:0; saveSettings(); });
-            byId('scavMvIds').addEventListener('change', function(e){ settings.mv_ids = e.target.value.trim(); saveSettings(); });
             // --- profile / eksport ---
             byId('scavProfLoad').addEventListener('click', function(){
                 var n = byId('scavProfSel').value; if(!n) return;
@@ -770,7 +677,6 @@
     // ====================================================================
     //  START
     // ====================================================================
-    if(maybeAutorun()) return;                  // petla/multi-wioska w toku -> bez okna
     if(settings.confirm_popup == 1) showPopup();
     else execute(recompute());
 
