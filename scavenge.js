@@ -9,7 +9,7 @@
     var settings = {
         max_ressources: 99999,   // maks. surowca z JEDNEGO poziomu
         archers: 0,              // 1 = swiat z lucznikami, 0 = bez
-        skip_level_1: 0,         // 1 = pomin poziom 1 zawsze
+        skip_level_1: 1,         // 1 = pomin poziom 1 zawsze
         min_population: 10,      // prog ludnosci najwyzszego tieru
         confirm_popup: 1,        // 1 = pokaz okno potwierdzenia; 0 = od razu dzialaj
         auto_send: 1,            // 1 = po Tak wypelnij i KLIKNIJ Start; 0 = tylko wypelnij
