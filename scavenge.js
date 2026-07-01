@@ -129,7 +129,7 @@
     // ====================================================================
     //  MODEL CZASU
     // ====================================================================
-    var TIME = { exp:0.45, init:1800, factor:0.6830201284 };
+    var TIME = { exp:0.45, init:1800, factor:1 };
     (function detectTime(){
         try{
             var found = scanScavengeConstants();
