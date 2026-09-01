@@ -399,15 +399,16 @@
 
         var ov = document.createElement('div');
         ov.id = 'scavPopup';
-        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:Verdana,Arial,sans-serif';
+        // padding u dolu = rezerwa na mobilny pasek gry (76px + safe-area)
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:2147483647;display:flex;align-items:center;justify-content:center;font-family:Verdana,Arial,sans-serif;box-sizing:border-box;padding:10px 0 calc(76px + env(safe-area-inset-bottom,0px))';
         var posStyle = settings.ui_pos ? 'position:fixed;left:'+settings.ui_pos.x+'px;top:'+settings.ui_pos.y+'px;margin:0;' : '';
         ov.innerHTML =
-            '<div id="scavDlg" style="'+posStyle+'background:#f4e4bc;border:2px solid #7d510f;border-radius:6px;max-width:680px;width:96%;max-height:92vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.5)">'+
+            '<div id="scavDlg" style="'+posStyle+'background:#f4e4bc;border:2px solid #7d510f;border-radius:6px;max-width:680px;width:96%;max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px);overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.5)">'+
               '<div id="scavHead" style="background:#c1a264;padding:10px 14px;font-size:15px;font-weight:bold;color:#3b2a16;border-bottom:2px solid #7d510f;cursor:move">Zbieractwo - ustawienia i rozklad <span style="font-weight:normal;font-size:11px">(swiat '+WORLD+', x'+SPEED+')</span></div>'+
               '<div id="scavSettings" style="padding:10px 14px;color:#3b2a16;font-size:13px;border-bottom:1px solid #d8cfae;background:#efe2bf"></div>'+
               '<div id="scavBody" style="padding:10px 14px;color:#3b2a16;font-size:13px"></div>'+
               '<div id="scavHist" style="padding:8px 14px;color:#3b2a16;font-size:12px;border-top:1px solid #d8cfae;background:#efe2bf"></div>'+
-              '<div style="padding:10px 14px;display:flex;gap:10px;justify-content:flex-end;border-top:2px solid #7d510f;background:#ede0bc;flex-wrap:wrap">'+
+              '<div style="position:sticky;bottom:0;z-index:3;padding:10px 14px;display:flex;gap:10px;justify-content:flex-end;border-top:2px solid #7d510f;background:#ede0bc;flex-wrap:wrap;box-shadow:0 -4px 10px rgba(0,0,0,.15)">'+
                 '<button id="scavReset" style="padding:8px 14px;border:1px solid #7d510f;border-radius:4px;background:#cdbd8e;color:#3b2a16;font-weight:bold;cursor:pointer;margin-right:auto">Reset</button>'+
                 '<button id="scavNo" style="padding:8px 18px;border:1px solid #7d510f;border-radius:4px;background:#d9c89a;color:#3b2a16;font-weight:bold;cursor:pointer">Nie, anuluj</button>'+
                 '<button id="scavYes" style="padding:8px 18px;border:1px solid #2f6f2f;border-radius:4px;background:#5cab5c;color:#fff;font-weight:bold;cursor:pointer">Tak, rozloz</button>'+
